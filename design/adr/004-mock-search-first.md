@@ -2,7 +2,7 @@
 
 | Field   | Value            |
 |---------|------------------|
-| Status  | Accepted         |
+| Status  | Superseded by [ADR-005](005-tavily-search.md) |
 | Date    | 2026-02-16       |
 | Authors | —                |
 

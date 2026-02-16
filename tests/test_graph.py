@@ -79,8 +79,11 @@ def test_planner_fallback_on_bad_json(mock_get_llm):
 
 # ── Worker tests ─────────────────────────────────────────────────────────
 
+@patch("src.agents.graph.search", return_value=[
+    {"title": "T", "snippet": "S", "url": "https://example.com"},
+])
 @patch("src.agents.graph._get_llm")
-def test_worker_produces_finding(mock_get_llm):
+def test_worker_produces_finding(mock_get_llm, _mock_search):
     llm = MagicMock()
     llm.invoke.return_value = _mock_llm_response("Synthesised answer here.")
     mock_get_llm.return_value = llm

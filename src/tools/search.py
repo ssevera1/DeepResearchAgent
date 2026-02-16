@@ -1,12 +1,15 @@
 """
-Mock search tool — returns deterministic dummy results.
+Search tool — dispatches to Tavily (if API key is set) or mock fallback.
 
-Swap this out for a real search API (Tavily, SerpAPI, etc.) later.
+The public entry point is ``search(query)``.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
+
+from config.settings import SEARCH_MAX_RESULTS
 
 
 def mock_search(query: str) -> list[dict[str, str]]:
@@ -26,3 +29,22 @@ def mock_search(query: str) -> list[dict[str, str]]:
             }
         )
     return results
+
+
+def tavily_search(query: str, max_results: int = SEARCH_MAX_RESULTS) -> list[dict[str, str]]:
+    """Real web search via the Tavily API."""
+    from tavily import TavilyClient
+
+    client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
+    response = client.search(query=query, max_results=max_results)
+    return [
+        {"title": r["title"], "snippet": r["content"], "url": r["url"]}
+        for r in response["results"]
+    ]
+
+
+def search(query: str) -> list[dict[str, str]]:
+    """Dispatch: Tavily if TAVILY_API_KEY is set, otherwise mock."""
+    if os.environ.get("TAVILY_API_KEY"):
+        return tavily_search(query)
+    return mock_search(query)

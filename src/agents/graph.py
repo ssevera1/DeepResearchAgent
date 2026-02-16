@@ -32,7 +32,7 @@ from langgraph.graph import END, StateGraph
 
 from config.settings import LLM_MODEL, LLM_TEMPERATURE, MAX_PLAN_SUBTASKS, MAX_WORKER_RETRIES
 from src.agents.state import AgentState, Finding, SubTask
-from src.tools.search import mock_search
+from src.tools.search import search
 
 
 # ── LLM singleton ──────────────────────────────────────────────────────
@@ -78,11 +78,11 @@ def planner_node(state: AgentState) -> dict:
 # ── Node: Worker ────────────────────────────────────────────────────────
 
 def worker_node(state: AgentState) -> dict:
-    """Execute the current sub-task using the mock search tool."""
+    """Execute the current sub-task using the search tool."""
     idx = state["current_subtask_idx"]
     subtask = state["current_plan"][idx]
 
-    results = mock_search(subtask.query)
+    results = search(subtask.query)
     combined = "\n\n".join(
         f"**{r['title']}**\n{r['snippet']}" for r in results
     )

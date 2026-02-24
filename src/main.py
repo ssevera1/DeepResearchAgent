@@ -30,7 +30,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # ── Input validation ────────────────────────────────────────────
+    # -- Input validation --------------------------------------------
     if not args.query.strip():
         print("Error: Query cannot be empty.", file=sys.stderr)
         sys.exit(1)
@@ -61,18 +61,18 @@ def main() -> None:
 
     final_state = graph.invoke(initial_state)
 
-    # ── Pretty-print results ────────────────────────────────────────
+    # -- Pretty-print results ----------------------------------------
     if not args.quiet:
-        print(f"\n{'─'*60}")
+        print(f"\n{'-'*60}")
         print("  PLAN")
-        print(f"{'─'*60}")
+        print(f"{'-'*60}")
         for st in final_state["current_plan"]:
             status = "done" if st.completed else "pending"
             print(f"  [{status}] {st.id}: {st.query}")
 
-    print(f"\n{'─'*60}")
+    print(f"\n{'-'*60}")
     print("  FINDINGS")
-    print(f"{'─'*60}")
+    print(f"{'-'*60}")
     for f in final_state["research_findings"]:
         marker = "approved" if f.approved else "rejected"
         print(f"\n  Sub-task {f.subtask_id} [{marker}]:")

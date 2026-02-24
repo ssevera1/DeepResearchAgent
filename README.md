@@ -34,11 +34,15 @@ cd DeepResearchAgent
 source .venv/bin/activate   # Linux/macOS
 .venv\Scripts\activate      # Windows
 
-# 4. Set your API key
-cp .env.example .env
-# edit .env with your OpenAI key
+# 4. Install Ollama and pull a model
+# See https://ollama.com for install instructions
+ollama pull llama3.2
 
-# 5. Run
+# 5. Set your Tavily API key (for web search)
+cp .env.example .env
+# edit .env with your Tavily key
+
+# 6. Run
 python -m src.main "What are the economic impacts of climate change?"
 ```
 
@@ -78,7 +82,7 @@ All tunables live in `config/settings.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `LLM_MODEL` | `gpt-4o-mini` | Any LangChain-supported chat model |
+| `LLM_MODEL` | `llama3.2` | Any model available via `ollama list` |
 | `LLM_TEMPERATURE` | `0.2` | LLM sampling temperature |
 | `MAX_WORKER_RETRIES` | `3` | Max retries per sub-task |
 | `MAX_PLAN_SUBTASKS` | `5` | Upper bound on planner output |
@@ -88,7 +92,7 @@ All tunables live in `config/settings.py`:
 - **Python 3.11+**
 - **LangGraph** — cyclic state-machine orchestration
 - **LangChain** — LLM abstractions
-- **OpenAI** — GPT-4o-mini (swappable)
+- **Ollama** — llama3.2 locally (swappable to any Ollama model)
 - **Pydantic v2** — structured state models
 - **pytest** — testing with mocked LLMs
 

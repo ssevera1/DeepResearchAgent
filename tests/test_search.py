@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.tools.search import mock_search, search, tavily_search
 
 
@@ -91,3 +93,84 @@ def test_search_falls_back_to_mock_without_key(mock_mock):
         results = search("q")
     mock_mock.assert_called_once_with("q")
     assert results == [{"title": "M", "snippet": "S", "url": "U"}]
+
+
+# ── Security: missing API key ─────────────────────────────────────────
+
+
+def test_tavily_search_raises_on_missing_api_key():
+    """Missing TAVILY_API_KEY should raise RuntimeError, not KeyError."""
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(RuntimeError, match="TAVILY_API_KEY"):
+            tavily_search("q")
+
+
+# ── Security: malformed Tavily response ────────────────────────────────
+
+
+@patch("tavily.TavilyClient")
+def test_tavily_search_handles_missing_results_key(mock_client_cls):
+    """Response without 'results' key should return empty list."""
+    mock_client = MagicMock()
+    mock_client_cls.return_value = mock_client
+    mock_client.search.return_value = {"error": "something went wrong"}
+
+    with patch.dict("os.environ", {"TAVILY_API_KEY": "key"}):
+        results = tavily_search("q")
+
+    assert results == []
+
+
+@patch("tavily.TavilyClient")
+def test_tavily_search_skips_malformed_results(mock_client_cls):
+    """Results missing required keys should be skipped, not crash."""
+    mock_client = MagicMock()
+    mock_client_cls.return_value = mock_client
+    mock_client.search.return_value = {
+        "results": [
+            {"title": "Good", "content": "Snippet", "url": "https://a.com"},
+            {"title": "Bad"},  # missing content and url
+        ]
+    }
+
+    with patch.dict("os.environ", {"TAVILY_API_KEY": "key"}):
+        results = tavily_search("q")
+
+    assert len(results) == 1
+    assert results[0]["title"] == "Good"
+
+
+@patch("tavily.TavilyClient")
+def test_tavily_search_returns_empty_on_api_error(mock_client_cls):
+    """API exceptions should be caught, returning empty list."""
+    mock_client = MagicMock()
+    mock_client_cls.return_value = mock_client
+    mock_client.search.side_effect = Exception("network error")
+
+    with patch.dict("os.environ", {"TAVILY_API_KEY": "key"}):
+        results = tavily_search("q")
+
+    assert results == []
+
+
+# ── Edge case: None values in Tavily results ───────────────────────────
+
+
+@patch("tavily.TavilyClient")
+def test_tavily_search_skips_results_with_none_values(mock_client_cls):
+    """Results with None field values should be skipped."""
+    mock_client = MagicMock()
+    mock_client_cls.return_value = mock_client
+    mock_client.search.return_value = {
+        "results": [
+            {"title": None, "content": "Snippet", "url": "https://a.com"},
+            {"title": "Good", "content": "Snippet", "url": "https://b.com"},
+            {"title": "Also bad", "content": "", "url": "https://c.com"},
+        ]
+    }
+
+    with patch.dict("os.environ", {"TAVILY_API_KEY": "key"}):
+        results = tavily_search("q")
+
+    assert len(results) == 1
+    assert results[0]["title"] == "Good"

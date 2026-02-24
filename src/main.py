@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from config.settings import MAX_QUERY_LENGTH
 from src.agents.graph import build_graph
 
 
@@ -22,12 +23,30 @@ def main() -> None:
         type=str,
         help="The research question to investigate.",
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress detailed output (only show final summary).",
+    )
     args = parser.parse_args()
 
-    print(f"\n{'='*60}")
-    print(f"  Deep Research Agent")
-    print(f"{'='*60}")
-    print(f"  Query: {args.query}\n")
+    # ── Input validation ────────────────────────────────────────────
+    if not args.query.strip():
+        print("Error: Query cannot be empty.", file=sys.stderr)
+        sys.exit(1)
+    if len(args.query) > MAX_QUERY_LENGTH:
+        print(
+            f"Error: Query too long ({len(args.query)} chars). "
+            f"Maximum is {MAX_QUERY_LENGTH} characters.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if not args.quiet:
+        print(f"\n{'='*60}")
+        print(f"  Deep Research Agent")
+        print(f"{'='*60}")
+        print(f"  Query: {args.query}\n")
 
     graph = build_graph()
 
@@ -43,12 +62,13 @@ def main() -> None:
     final_state = graph.invoke(initial_state)
 
     # ── Pretty-print results ────────────────────────────────────────
-    print(f"\n{'─'*60}")
-    print("  PLAN")
-    print(f"{'─'*60}")
-    for st in final_state["current_plan"]:
-        status = "done" if st.completed else "pending"
-        print(f"  [{status}] {st.id}: {st.query}")
+    if not args.quiet:
+        print(f"\n{'─'*60}")
+        print("  PLAN")
+        print(f"{'─'*60}")
+        for st in final_state["current_plan"]:
+            status = "done" if st.completed else "pending"
+            print(f"  [{status}] {st.id}: {st.query}")
 
     print(f"\n{'─'*60}")
     print("  FINDINGS")

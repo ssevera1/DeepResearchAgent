@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 class SubTask(BaseModel):
     """A single research sub-task produced by the Planner."""
     id: int
-    query: str
+    query: str = Field(..., min_length=1, max_length=2000)
     completed: bool = False
 
 

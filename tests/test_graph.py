@@ -77,6 +77,40 @@ def test_planner_fallback_on_bad_json(mock_get_llm):
     assert "Not valid JSON" in result["current_plan"][0].query
 
 
+@patch("src.agents.graph._get_llm")
+def test_planner_handles_dict_response(mock_get_llm):
+    """JSON dict (not array) should be coerced to a single-item list."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response(
+        json.dumps({"task": "research something"})
+    )
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    result = planner_node(state)
+
+    assert len(result["current_plan"]) == 1
+
+
+@patch("src.agents.graph._get_llm")
+def test_planner_filters_non_string_items(mock_get_llm):
+    """Non-string items in JSON array should be coerced or filtered."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response(
+        json.dumps(["Valid task", None, {"nested": True}, "Another task"])
+    )
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    result = planner_node(state)
+
+    queries = [st.query for st in result["current_plan"]]
+    assert "Valid task" in queries
+    assert "Another task" in queries
+    # None and dict should be filtered out
+    assert len(result["current_plan"]) == 2
+
+
 # ── Worker tests ─────────────────────────────────────────────────────────
 
 @patch("src.agents.graph.search", return_value=[
@@ -129,6 +163,24 @@ def test_reviewer_rejects(mock_get_llm):
     assert result["worker_retries"] == 1
 
 
+@patch("src.agents.graph._get_llm")
+def test_reviewer_advances_on_retries_exhausted(mock_get_llm):
+    """When retries are exhausted, reviewer should advance to next subtask."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response("No")
+    mock_get_llm.return_value = llm
+
+    finding = Finding(subtask_id=0, content="Bad answer")
+    state = _make_state(
+        research_findings=[finding],
+        worker_retries=2,  # Will become 3 = MAX_WORKER_RETRIES
+    )
+    result = reviewer_node(state)
+
+    assert result["current_subtask_idx"] == 1
+    assert result["worker_retries"] == 0
+
+
 # ── Routing tests ────────────────────────────────────────────────────────
 
 def test_routing_retry_when_rejected_and_retries_left():
@@ -163,11 +215,112 @@ def test_routing_end_when_all_subtasks_done():
 
 
 def test_routing_end_when_retries_exhausted_on_last_subtask():
+    """After reviewer advances past last subtask on exhaustion, END."""
     finding = Finding(subtask_id=1, content="bad", approved=False)
     state = _make_state(
         research_findings=[finding],
-        worker_retries=3,         # MAX_WORKER_RETRIES = 3
-        current_subtask_idx=2,    # past end after forced advance
+        worker_retries=0,         # Reset by reviewer after exhaustion
+        current_subtask_idx=2,    # Past end — advanced by reviewer
+    )
+    assert after_review(state) == "__end__"
+
+
+def test_routing_advances_past_exhausted_retries_on_non_last_subtask():
+    """After reviewer exhausts retries on subtask 0, advance to subtask 1."""
+    finding = Finding(subtask_id=0, content="bad", approved=False)
+    state = _make_state(
+        research_findings=[finding],
+        worker_retries=0,         # Reset by reviewer after exhaustion
+        current_subtask_idx=1,    # Advanced by reviewer
+    )
+    # idx=1 < len(plan)=2 → should continue to next subtask
+    assert after_review(state) == "worker"
+
+
+def test_routing_empty_findings_returns_worker():
+    """Empty research_findings should route back to worker."""
+    state = _make_state(research_findings=[])
+    assert after_review(state) == "worker"
+
+
+# ── Edge case: planner with whitespace/empty LLM response ────────────────
+
+
+@patch("src.agents.graph._get_llm")
+def test_planner_whitespace_only_response(mock_get_llm):
+    """LLM returning only whitespace should produce a valid fallback subtask."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response("   \n\n   ")
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    result = planner_node(state)
+
+    assert len(result["current_plan"]) == 1
+    assert result["current_plan"][0].query  # non-empty
+
+
+@patch("src.agents.graph._get_llm")
+def test_planner_empty_string_response(mock_get_llm):
+    """LLM returning empty string should produce a valid fallback subtask."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response("")
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    result = planner_node(state)
+
+    assert len(result["current_plan"]) >= 1
+    assert result["current_plan"][0].query  # non-empty
+
+
+@patch("src.agents.graph._get_llm")
+def test_planner_whitespace_items_filtered(mock_get_llm):
+    """JSON array with whitespace-only strings should filter them out."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response(
+        json.dumps(["Valid task", "   ", "", "Another task"])
+    )
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    result = planner_node(state)
+
+    queries = [st.query for st in result["current_plan"]]
+    assert "Valid task" in queries
+    assert "Another task" in queries
+    assert len(result["current_plan"]) == 2
+
+
+# ── Edge case: worker with empty search results ─────────────────────────
+
+
+@patch("src.agents.graph.search", return_value=[])
+@patch("src.agents.graph._get_llm")
+def test_worker_handles_empty_search_results(mock_get_llm, _mock_search):
+    """Worker should not crash when search returns no results."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response("No results found.")
+    mock_get_llm.return_value = llm
+
+    state = _make_state()
+    result = worker_node(state)
+
+    assert len(result["research_findings"]) == 1
+    assert result["research_findings"][0].content == "No results found."
+
+
+# ── Edge case: single subtask plan ───────────────────────────────────────
+
+
+def test_routing_end_after_single_subtask_approved():
+    """Plan with 1 subtask: approval should END immediately."""
+    finding = Finding(subtask_id=0, content="good", approved=True)
+    state = _make_state(
+        current_plan=[SubTask(id=0, query="Only task")],
+        research_findings=[finding],
+        worker_retries=0,
+        current_subtask_idx=1,  # incremented by reviewer
     )
     assert after_review(state) == "__end__"
 

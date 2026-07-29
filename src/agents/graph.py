@@ -24,15 +24,38 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Literal
+from typing import Any, Literal, cast
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from config.settings import LLM_MODEL, LLM_TEMPERATURE, MAX_PLAN_SUBTASKS, MAX_WORKER_RETRIES, OLLAMA_BASE_URL
 from src.agents.state import AgentState, Finding, SubTask
 from src.tools.search import search
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────
+
+def _as_text(content: str | list[str | dict[Any, Any]]) -> str:
+    """Flatten a message payload to text.
+
+    A chat model returns either a plain string or a list of content blocks;
+    calling str methods on the list case raises AttributeError at runtime.
+    """
+    if isinstance(content, str):
+        return content
+
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict):
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+    return "".join(parts)
 
 
 # ── LLM singleton ──────────────────────────────────────────────────────
@@ -59,11 +82,13 @@ def planner_node(state: AgentState) -> dict:
         HumanMessage(content=f"<user_query>\n{state['query']}\n</user_query>"),
     ])
 
+    text = _as_text(response.content)
+
     try:
-        raw = json.loads(response.content)
+        raw = json.loads(text)
     except json.JSONDecodeError:
         # Fallback: treat the whole response as a single task
-        raw = [response.content.strip()]
+        raw = [text.strip()]
 
     # Validate: must be a list of non-empty strings
     if not isinstance(raw, list):
@@ -75,7 +100,7 @@ def planner_node(state: AgentState) -> dict:
         if s
     ]
     if not raw:
-        fallback = response.content.strip()
+        fallback = text.strip()
         raw = [fallback] if fallback else ["Research the user query"]
 
     subtasks = [
@@ -122,7 +147,7 @@ def worker_node(state: AgentState) -> dict:
 
     finding = Finding(
         subtask_id=subtask.id,
-        content=response.content.strip(),
+        content=_as_text(response.content).strip(),
     )
 
     # research_findings uses operator.add reducer — wrap in a list
@@ -154,7 +179,7 @@ def reviewer_node(state: AgentState) -> dict:
         )),
     ])
 
-    approved = response.content.strip().lower().startswith("yes")
+    approved = _as_text(response.content).strip().lower().startswith("yes")
 
     if approved:
         # In-place mutation: these are references to objects already in state.
@@ -204,13 +229,14 @@ def after_review(state: AgentState) -> Literal["worker", "__end__"]:
         # Advance to the next sub-task
         return "worker"
 
-    # All done
-    return END
+    # All done. END is exported as a plain str, so restate it as the literal
+    # this function promises.
+    return cast(Literal["worker", "__end__"], END)
 
 
 # ── Graph assembly ──────────────────────────────────────────────────────
 
-def build_graph() -> StateGraph:
+def build_graph() -> CompiledStateGraph:
     """Construct and compile the Deep Research Agent graph."""
     graph = StateGraph(AgentState)
 

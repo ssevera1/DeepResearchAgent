@@ -9,10 +9,15 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 
 from config.settings import SEARCH_MAX_RESULTS
 
 logger = logging.getLogger(__name__)
+
+_TAVILY_MAX_RETRIES = 3
+_TAVILY_TIMEOUT_SECONDS = 10
+_TAVILY_RETRY_DELAY_SECONDS = 1
 
 
 def mock_search(query: str) -> list[dict[str, str]]:
@@ -35,7 +40,7 @@ def mock_search(query: str) -> list[dict[str, str]]:
 
 
 def tavily_search(query: str, max_results: int = SEARCH_MAX_RESULTS) -> list[dict[str, str]]:
-    """Real web search via the Tavily API."""
+    """Real web search via the Tavily API with retry and timeout logic."""
     from tavily import TavilyClient
 
     api_key = os.environ.get("TAVILY_API_KEY")
@@ -46,11 +51,39 @@ def tavily_search(query: str, max_results: int = SEARCH_MAX_RESULTS) -> list[dic
         )
 
     client = TavilyClient(api_key=api_key)
-    try:
-        response = client.search(query=query, max_results=max_results)
-    except Exception:
-        logger.exception("Tavily API request failed")
-        return []
+    
+    for attempt in range(_TAVILY_MAX_RETRIES):
+        try:
+            response = client.search(
+                query=query,
+                max_results=max_results,
+                timeout=_TAVILY_TIMEOUT_SECONDS
+            )
+            break
+        except TimeoutError:
+            if attempt < _TAVILY_MAX_RETRIES - 1:
+                logger.warning(
+                    "Tavily API request timed out (attempt %d/%d), retrying in %ds",
+                    attempt + 1,
+                    _TAVILY_MAX_RETRIES,
+                    _TAVILY_RETRY_DELAY_SECONDS,
+                )
+                time.sleep(_TAVILY_RETRY_DELAY_SECONDS)
+            else:
+                logger.exception("Tavily API request timed out after %d retries", _TAVILY_MAX_RETRIES)
+                return []
+        except Exception:
+            if attempt < _TAVILY_MAX_RETRIES - 1:
+                logger.warning(
+                    "Tavily API request failed (attempt %d/%d), retrying in %ds",
+                    attempt + 1,
+                    _TAVILY_MAX_RETRIES,
+                    _TAVILY_RETRY_DELAY_SECONDS,
+                )
+                time.sleep(_TAVILY_RETRY_DELAY_SECONDS)
+            else:
+                logger.exception("Tavily API request failed after %d retries", _TAVILY_MAX_RETRIES)
+                return []
 
     results = []
     for r in response.get("results", []):

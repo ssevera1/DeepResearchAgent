@@ -123,12 +123,21 @@ def worker_node(state: AgentState) -> dict:
     subtask = state["current_plan"][idx]
 
     results = search(subtask.query)
-    if results:
-        combined = "\n\n".join(
-            f"**{r['title']}**\n{r['snippet']}" for r in results
-        )
-    else:
-        combined = "[No search results available for this query.]"
+    if not results:
+        # Increment retries when no search results are available
+        new_retries = state["worker_retries"] + 1
+        if new_retries >= MAX_WORKER_RETRIES:
+            # Retries exhausted — advance to next sub-task
+            return {
+                "current_subtask_idx": idx + 1,
+                "worker_retries": 0,
+            }
+        # Still have retries left — return to worker without producing a finding
+        return {"worker_retries": new_retries}
+
+    combined = "\n\n".join(
+        f"**{r['title']}**\n{r['snippet']}" for r in results
+    )
 
     llm = _get_llm()
     response = llm.invoke([

@@ -71,7 +71,7 @@ def planner_node(state: AgentState) -> dict:
     """Break the user query into 3-5 concrete research sub-tasks."""
     llm = _get_llm()
     try:
-        response = llm.invoke([(
+        response = llm.invoke([
             SystemMessage(content=(
                 "You are a research planner. Given a user query, decompose it into "
                 f"3 to {MAX_PLAN_SUBTASKS} independent, concrete sub-tasks that "

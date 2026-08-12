@@ -58,7 +58,7 @@ def test_tavily_search_maps_fields(mock_client_cls):
     assert len(results) == 2
     assert results[0] == {"title": "T1", "snippet": "Snippet 1", "url": "https://a.com"}
     assert results[1] == {"title": "T2", "snippet": "Snippet 2", "url": "https://b.com"}
-    mock_client.search.assert_called_once_with(query="test query", max_results=2)
+    mock_client.search.assert_called_once_with(query="test query", max_results=2, timeout=10)
 
 
 @patch("tavily.TavilyClient")

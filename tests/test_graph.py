@@ -298,16 +298,36 @@ def test_planner_whitespace_items_filtered(mock_get_llm):
 @patch("src.agents.graph.search", return_value=[])
 @patch("src.agents.graph._get_llm")
 def test_worker_handles_empty_search_results(mock_get_llm, _mock_search):
-    """Worker should not crash when search returns no results."""
+    """Worker should not crash when search returns no results, and should
+    skip LLM synthesis rather than fabricate a finding from nothing."""
     llm = MagicMock()
-    llm.invoke.return_value = _mock_llm_response("No results found.")
     mock_get_llm.return_value = llm
 
     state = _make_state()
     result = worker_node(state)
 
-    assert len(result["research_findings"]) == 1
-    assert result["research_findings"][0].content == "No results found."
+    assert "research_findings" not in result
+    assert result["worker_retries"] == state["worker_retries"] + 1
+    llm.invoke.assert_not_called()
+
+
+@patch("src.agents.graph.search", return_value=[])
+@patch("src.agents.graph._get_llm")
+def test_worker_advances_subtask_when_empty_result_retries_exhausted(
+    mock_get_llm, _mock_search
+):
+    """When retries are already exhausted, worker should give up on this
+    sub-task and advance rather than looping forever."""
+    llm = MagicMock()
+    mock_get_llm.return_value = llm
+
+    state = _make_state(worker_retries=2)  # next increment hits MAX_WORKER_RETRIES
+    result = worker_node(state)
+
+    assert "research_findings" not in result
+    assert result["current_subtask_idx"] == state["current_subtask_idx"] + 1
+    assert result["worker_retries"] == 0
+    llm.invoke.assert_not_called()
 
 
 # ── Edge case: single subtask plan ───────────────────────────────────────

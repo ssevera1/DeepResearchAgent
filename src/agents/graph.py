@@ -30,6 +30,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config.settings import LLM_MODEL, LLM_TEMPERATURE, MAX_PLAN_SUBTASKS, MAX_WORKER_RETRIES, OLLAMA_BASE_URL
 from src.agents.state import AgentState, Finding, SubTask
@@ -97,12 +98,24 @@ def _get_llm() -> ChatOllama:
     return ChatOllama(model=LLM_MODEL, temperature=LLM_TEMPERATURE, base_url=OLLAMA_BASE_URL)
 
 
+# ── Retry decorator for LLM calls ──────────────────────────────────────
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True,
+)
+def _invoke_llm_with_retry(llm: ChatOllama, messages: list) -> Any:
+    """Invoke LLM with exponential backoff retry on transient failures."""
+    return llm.invoke(messages)
+
+
 # ── Node: Planner ───────────────────────────────────────────────────────
 
 def planner_node(state: AgentState) -> dict:
     """Break the user query into 3-5 concrete research sub-tasks."""
     llm = _get_llm()
-    response = llm.invoke([
+    response = _invoke_llm_with_retry(llm, [
         SystemMessage(content=(
             "You are a research planner. Given a user query, decompose it into "
             f"3 to {MAX_PLAN_SUBTASKS} independent, concrete sub-tasks that "
@@ -159,7 +172,7 @@ def worker_node(state: AgentState) -> dict:
     is_valid, combined = _validate_search_results(results)
 
     llm = _get_llm()
-    response = llm.invoke([
+    response = _invoke_llm_with_retry(llm, [
         SystemMessage(content=(
             "You are a research worker. You have been given search results for "
             "a specific sub-task. Synthesise the results into a concise finding "
@@ -196,7 +209,7 @@ def reviewer_node(state: AgentState) -> dict:
     latest_finding = state["research_findings"][-1]
 
     llm = _get_llm()
-    response = llm.invoke([
+    response = _invoke_llm_with_retry(llm, [
         SystemMessage(content=(
             "You are a research reviewer. Evaluate whether the finding below "
             "adequately answers the sub-task. Respond with ONLY 'Yes' or 'No'.\n\n"

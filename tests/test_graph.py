@@ -9,9 +9,12 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
+from tenacity import wait_none
 
 from src.agents.graph import (
+    _invoke_llm_with_retry,
     after_review,
     build_graph,
     planner_node,
@@ -331,3 +334,44 @@ def test_graph_compiles():
     """Smoke test: the graph compiles without error."""
     graph = build_graph()
     assert graph is not None
+
+
+# ── LLM retry tests ──────────────────────────────────────────────────────
+
+def _no_wait():
+    """The retry wrapper with backoff stripped, so tests don't pay wall-clock time."""
+    return _invoke_llm_with_retry.retry_with(wait=wait_none())
+
+
+def test_llm_retry_recovers_from_transient_transport_error():
+    llm = MagicMock()
+    llm.invoke.side_effect = [
+        httpx.ConnectError("connection refused"),
+        _mock_llm_response("recovered"),
+    ]
+
+    result = _no_wait()(llm, [])
+
+    assert result.content == "recovered"
+    assert llm.invoke.call_count == 2
+
+
+def test_llm_retry_stops_after_three_attempts_and_reraises():
+    llm = MagicMock()
+    llm.invoke.side_effect = httpx.ReadTimeout("too slow")
+
+    with pytest.raises(httpx.ReadTimeout):
+        _no_wait()(llm, [])
+
+    assert llm.invoke.call_count == 3
+
+
+def test_llm_retry_does_not_retry_permanent_errors():
+    """A deterministic failure must fail fast rather than burn the backoff budget."""
+    llm = MagicMock()
+    llm.invoke.side_effect = ValueError("model 'nope' not found")
+
+    with pytest.raises(ValueError):
+        _no_wait()(llm, [])
+
+    assert llm.invoke.call_count == 1

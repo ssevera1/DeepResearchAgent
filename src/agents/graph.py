@@ -30,7 +30,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from tenacity import retry, stop_after_attempt, wait_exponential
+import httpx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from config.settings import LLM_MODEL, LLM_TEMPERATURE, MAX_PLAN_SUBTASKS, MAX_WORKER_RETRIES, OLLAMA_BASE_URL
 from src.agents.state import AgentState, Finding, SubTask
@@ -103,10 +109,14 @@ def _get_llm() -> ChatOllama:
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
+    # Only transport-level faults are worth retrying. A missing model or a
+    # malformed request is deterministic, and retrying it just adds ~6s of
+    # backoff per call site to a failure that cannot succeed.
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
     reraise=True,
 )
 def _invoke_llm_with_retry(llm: ChatOllama, messages: list) -> Any:
-    """Invoke LLM with exponential backoff retry on transient failures."""
+    """Invoke LLM, retrying transient transport failures with backoff."""
     return llm.invoke(messages)
 
 

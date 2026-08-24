@@ -14,6 +14,7 @@ import pytest
 from tenacity import wait_none
 
 from src.agents.graph import (
+    _extract_synthesis,
     _invoke_llm_with_retry,
     after_review,
     build_graph,
@@ -375,3 +376,63 @@ def test_llm_retry_does_not_retry_permanent_errors():
         _no_wait()(llm, [])
 
     assert llm.invoke.call_count == 1
+# ── Worker synthesis extraction ──────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "reply,expected",
+    [
+        ('{"synthesis": "a finding"}', "a finding"),
+        ('```json\n{"synthesis": "a finding"}\n```', "a finding"),
+        ('```\n{"synthesis": "a finding"}\n```', "a finding"),
+        ('Sure! Here is the JSON:\n{"synthesis": "a finding"}', "a finding"),
+        ('{"synthesis": "braces { } inside"}', "braces { } inside"),
+    ],
+)
+def test_extract_synthesis_accepts_wrapped_json(reply, expected):
+    assert _extract_synthesis(reply) == expected
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        '{"result": "wrong key"}',
+        '{"synthesis": "   "}',
+        '{"synthesis": ["not", "a", "string"]}',
+        '{"synthesis": {"nested": true}}',
+        '{"synthesis": null}',
+        "Just prose, no JSON at all.",
+        "",
+    ],
+)
+def test_extract_synthesis_rejects_unusable_replies(reply):
+    assert _extract_synthesis(reply) is None
+
+
+@patch("src.agents.graph.search")
+@patch("src.agents.graph._get_llm")
+def test_worker_extracts_synthesis_from_fenced_json(mock_get_llm, mock_search):
+    """A fenced reply must not leak the raw ```json blob into the finding."""
+    mock_search.return_value = [{"title": "T", "snippet": "S", "url": "https://a.com"}]
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response(
+        '```json\n{"synthesis": "The clean finding."}\n```'
+    )
+    mock_get_llm.return_value = llm
+
+    result = worker_node(_make_state())
+
+    assert result["research_findings"][0].content == "The clean finding."
+
+
+@patch("src.agents.graph.search")
+@patch("src.agents.graph._get_llm")
+def test_worker_falls_back_to_raw_text_when_key_missing(mock_get_llm, mock_search):
+    mock_search.return_value = [{"title": "T", "snippet": "S", "url": "https://a.com"}]
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response('{"result": "wrong key"}')
+    mock_get_llm.return_value = llm
+
+    result = worker_node(_make_state())
+
+    assert result["research_findings"][0].content == '{"result": "wrong key"}'

@@ -9,10 +9,16 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import random
+import time
 
 from config.settings import SEARCH_MAX_RESULTS
 
 logger = logging.getLogger(__name__)
+
+_TAVILY_MAX_RETRIES = 3
+_TAVILY_TIMEOUT_SECONDS = 10
+_TAVILY_RETRY_DELAY_SECONDS = 1
 
 
 def mock_search(query: str) -> list[dict[str, str]]:
@@ -35,8 +41,15 @@ def mock_search(query: str) -> list[dict[str, str]]:
 
 
 def tavily_search(query: str, max_results: int = SEARCH_MAX_RESULTS) -> list[dict[str, str]]:
-    """Real web search via the Tavily API."""
+    """Real web search via the Tavily API with retry and timeout logic."""
     from tavily import TavilyClient
+    from tavily.errors import (
+        BadRequestError,
+        ForbiddenError,
+        InvalidAPIKeyError,
+        MissingAPIKeyError,
+        UsageLimitExceededError,
+    )
 
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key:
@@ -46,11 +59,46 @@ def tavily_search(query: str, max_results: int = SEARCH_MAX_RESULTS) -> list[dic
         )
 
     client = TavilyClient(api_key=api_key)
-    try:
-        response = client.search(query=query, max_results=max_results)
-    except Exception:
-        logger.exception("Tavily API request failed")
-        return []
+
+    # Deterministic failures. A rejected key, an exhausted quota or a
+    # malformed request cannot be fixed by trying again, so they must not
+    # consume the retry budget or stall the agent loop on every search.
+    permanent_errors = (
+        InvalidAPIKeyError,
+        MissingAPIKeyError,
+        UsageLimitExceededError,
+        BadRequestError,
+        ForbiddenError,
+    )
+
+    for attempt in range(_TAVILY_MAX_RETRIES):
+        try:
+            response = client.search(
+                query=query,
+                max_results=max_results,
+                timeout=_TAVILY_TIMEOUT_SECONDS,
+            )
+            break
+        except permanent_errors:
+            logger.exception("Tavily rejected the request; not retrying")
+            return []
+        except Exception:
+            if attempt >= _TAVILY_MAX_RETRIES - 1:
+                logger.exception(
+                    "Tavily API request failed after %d attempts", _TAVILY_MAX_RETRIES
+                )
+                return []
+            # Exponential backoff with jitter: three workers retrying in
+            # lockstep is what keeps a struggling endpoint struggling.
+            delay = _TAVILY_RETRY_DELAY_SECONDS * (2**attempt) + random.uniform(0, 0.5)
+            logger.warning(
+                "Tavily API request failed (attempt %d/%d), retrying in %.1fs",
+                attempt + 1,
+                _TAVILY_MAX_RETRIES,
+                delay,
+                exc_info=True,
+            )
+            time.sleep(delay)
 
     results = []
     for r in response.get("results", []):

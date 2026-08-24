@@ -16,6 +16,7 @@ from config.settings import SEARCH_MAX_RESULTS
 
 logger = logging.getLogger(__name__)
 
+# Attempts, not retries: the first call counts toward this budget.
 _TAVILY_MAX_RETRIES = 3
 _TAVILY_TIMEOUT_SECONDS = 10
 _TAVILY_RETRY_DELAY_SECONDS = 1

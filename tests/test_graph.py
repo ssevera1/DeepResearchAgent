@@ -436,3 +436,25 @@ def test_worker_falls_back_to_raw_text_when_key_missing(mock_get_llm, mock_searc
     result = worker_node(_make_state())
 
     assert result["research_findings"][0].content == '{"result": "wrong key"}'
+
+
+@patch("src.agents.graph.search")
+@patch("src.agents.graph._get_llm")
+def test_worker_prompt_keeps_empty_result_example_intact(mock_get_llm, mock_search):
+    """The worker's empty-result example sentence is prompt surface; pin it.
+
+    It was introduced in #8 and must not drift as a side effect of unrelated
+    changes to this module.
+    """
+    mock_search.return_value = [{"title": "T", "snippet": "S", "url": "https://a.com"}]
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response('{"synthesis": "A finding."}')
+    mock_get_llm.return_value = llm
+
+    worker_node(_make_state())
+
+    system_prompt = llm.invoke.call_args[0][0][0].content
+    assert (
+        "If the search results are empty or unavailable, respond with a JSON object like "
+        '{"synthesis": "[Unable to find information for this query]"}.\n\n'
+    ) in system_prompt

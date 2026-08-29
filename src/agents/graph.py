@@ -317,6 +317,13 @@ def worker_node(state: AgentState) -> dict:
         content=synthesis_content,
     )
 
+    logger.debug(
+        "worker_node: produced finding for subtask %s (retry %d/%d)",
+        subtask.id,
+        state["worker_retries"],
+        MAX_WORKER_RETRIES,
+    )
+
     # research_findings uses operator.add reducer — wrap in a list
     return {"research_findings": [finding]}
 
@@ -355,6 +362,11 @@ def reviewer_node(state: AgentState) -> dict:
         # LangGraph passes the same Python objects through nodes sequentially.
         latest_finding.approved = True
         subtask.completed = True
+        logger.info(
+            "reviewer_node: approved finding for subtask %s after %d attempt(s)",
+            subtask.id,
+            state["worker_retries"] + 1,
+        )
         return {
             "current_subtask_idx": idx + 1,
             "worker_retries": 0,
@@ -364,10 +376,21 @@ def reviewer_node(state: AgentState) -> dict:
     new_retries = state["worker_retries"] + 1
     if new_retries >= MAX_WORKER_RETRIES:
         # Retries exhausted — give up on this sub-task and advance
+        logger.warning(
+            "reviewer_node: exhausted retries for subtask %s after %d attempt(s)",
+            subtask.id,
+            new_retries,
+        )
         return {
             "current_subtask_idx": idx + 1,
             "worker_retries": 0,
         }
+    logger.debug(
+        "reviewer_node: rejected finding for subtask %s; retrying (attempt %d/%d)",
+        subtask.id,
+        new_retries,
+        MAX_WORKER_RETRIES,
+    )
     return {"worker_retries": new_retries}
 
 

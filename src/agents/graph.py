@@ -275,15 +275,13 @@ def worker_node(state: AgentState) -> dict:
     """Execute the current sub-task using the search tool."""
     idx = state["current_subtask_idx"]
     plan = state["current_plan"]
-    
-    if not plan or idx < 0 or idx >= len(plan):
-        logger.error(
-            "worker_node: invalid current_subtask_idx %d (plan has %d tasks)",
-            idx,
-            len(plan),
+
+    if idx < 0 or idx >= len(plan):
+        raise ValueError(
+            f"worker_node: invalid current_subtask_idx {idx} for plan of "
+            f"{len(plan)} tasks"
         )
-        return {"research_findings": []}
-    
+
     subtask = plan[idx]
 
     results = search(subtask.query)
@@ -347,15 +345,15 @@ def reviewer_node(state: AgentState) -> dict:
 
     idx = state["current_subtask_idx"]
     plan = state["current_plan"]
-    
-    if not plan or idx < 0 or idx >= len(plan):
+
+    if idx < 0 or idx >= len(plan):
         logger.error(
             "reviewer_node: invalid current_subtask_idx %d (plan has %d tasks)",
             idx,
             len(plan),
         )
         return {"current_subtask_idx": idx + 1, "worker_retries": 0}
-    
+
     subtask = plan[idx]
     latest_finding = state["research_findings"][-1]
 

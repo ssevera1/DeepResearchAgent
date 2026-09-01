@@ -274,7 +274,15 @@ def planner_node(state: AgentState) -> dict:
 def worker_node(state: AgentState) -> dict:
     """Execute the current sub-task using the search tool."""
     idx = state["current_subtask_idx"]
-    subtask = state["current_plan"][idx]
+    plan = state["current_plan"]
+
+    if idx < 0 or idx >= len(plan):
+        raise ValueError(
+            f"worker_node: invalid current_subtask_idx {idx} for plan of "
+            f"{len(plan)} tasks"
+        )
+
+    subtask = plan[idx]
 
     results = search(subtask.query)
     is_valid, combined = _validate_search_results(results)
@@ -336,7 +344,17 @@ def reviewer_node(state: AgentState) -> dict:
         return {"worker_retries": state["worker_retries"] + 1}
 
     idx = state["current_subtask_idx"]
-    subtask = state["current_plan"][idx]
+    plan = state["current_plan"]
+
+    if idx < 0 or idx >= len(plan):
+        logger.error(
+            "reviewer_node: invalid current_subtask_idx %d (plan has %d tasks)",
+            idx,
+            len(plan),
+        )
+        return {"current_subtask_idx": idx + 1, "worker_retries": 0}
+
+    subtask = plan[idx]
     latest_finding = state["research_findings"][-1]
 
     llm = _get_llm()

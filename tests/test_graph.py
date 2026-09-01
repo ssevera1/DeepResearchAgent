@@ -136,6 +136,26 @@ def test_worker_produces_finding(mock_get_llm, _mock_search):
     assert finding.approved is False
 
 
+def test_worker_raises_on_out_of_range_idx():
+    """An out-of-bounds idx must fail fast, not silently no-op.
+
+    A silent no-op leaves state byte-identical (research_findings uses an
+    operator.add reducer, so appending [] is a no-op), which makes
+    worker -> reviewer -> after_review loop forever instead of raising,
+    since reviewer_node also short-circuits on empty research_findings
+    before it ever reaches its own bounds check.
+    """
+    state = _make_state(current_subtask_idx=5)  # plan only has 2 sub-tasks
+    with pytest.raises(ValueError, match="invalid current_subtask_idx"):
+        worker_node(state)
+
+
+def test_worker_raises_on_empty_plan():
+    state = _make_state(current_plan=[], current_subtask_idx=0)
+    with pytest.raises(ValueError, match="invalid current_subtask_idx"):
+        worker_node(state)
+
+
 # ── Reviewer tests ───────────────────────────────────────────────────────
 
 @patch("src.agents.graph._get_llm")
@@ -183,6 +203,16 @@ def test_reviewer_advances_on_retries_exhausted(mock_get_llm):
 
     assert result["current_subtask_idx"] == 1
     assert result["worker_retries"] == 0
+
+
+def test_reviewer_advances_on_out_of_range_idx():
+    """An out-of-bounds idx should advance the index rather than get stuck,
+    so after_review's `idx < len(plan)` check can route to END."""
+    finding = Finding(subtask_id=0, content="Some answer")
+    state = _make_state(research_findings=[finding], current_subtask_idx=5)
+    result = reviewer_node(state)
+
+    assert result == {"current_subtask_idx": 6, "worker_retries": 0}
 
 
 # ── Routing tests ────────────────────────────────────────────────────────

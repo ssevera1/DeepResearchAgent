@@ -211,38 +211,44 @@ def planner_node(state: AgentState) -> dict:
 
     text = _as_text(response.content)
 
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError:
+    if not text or not text.strip():
         logger.warning(
-            "planner_node: failed to parse JSON from response; falling back to raw text: %.300s",
-            text,
+            "planner_node: received empty or whitespace-only response from model"
         )
-        # Fallback: treat the whole response as a single task
-        raw = [text.strip()]
+        raw = ["Research the user query"]
+    else:
+        try:
+            raw = json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning(
+                "planner_node: failed to parse JSON from response; falling back to raw text: %.300s",
+                text,
+            )
+            # Fallback: treat the whole response as a single task
+            raw = [text.strip()]
 
-    # Validate: must be a list of non-empty strings
-    if not isinstance(raw, list):
-        logger.debug(
-            "planner_node: response was not a list (got %s); wrapping as single task",
-            type(raw).__name__,
-        )
-        raw = [str(raw)]
+        # Validate: must be a list of non-empty strings
+        if not isinstance(raw, list):
+            logger.debug(
+                "planner_node: response was not a list (got %s); wrapping as single task",
+                type(raw).__name__,
+            )
+            raw = [str(raw)]
 
-    raw = [
-        s for item in raw
-        if isinstance(item, (str, int, float))
-        for s in [str(item).strip()]
-        if s
-    ]
+        raw = [
+            s for item in raw
+            if isinstance(item, (str, int, float))
+            for s in [str(item).strip()]
+            if s
+        ]
 
-    if not raw:
-        fallback = text.strip()
-        raw = [fallback] if fallback else ["Research the user query"]
-        logger.warning(
-            "planner_node: extracted no valid sub-tasks; using fallback: %s",
-            raw[0][:100],
-        )
+        if not raw:
+            fallback = text.strip()
+            raw = [fallback] if fallback else ["Research the user query"]
+            logger.warning(
+                "planner_node: extracted no valid sub-tasks; using fallback: %s",
+                raw[0][:100],
+            )
 
     if len(raw) > MAX_PLAN_SUBTASKS:
         logger.info(

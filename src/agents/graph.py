@@ -133,6 +133,12 @@ def _extract_synthesis(text: str) -> str | None:
         # A non-str value would otherwise be stringified into a Python repr.
         if isinstance(value, str) and value.strip():
             return value.strip()
+        if isinstance(value, str) and not value.strip():
+            logger.warning(
+                "_extract_synthesis: 'synthesis' key present but its value is "
+                "empty or whitespace-only"
+            )
+            return None
     return None
 
 
@@ -323,12 +329,6 @@ def worker_node(state: AgentState) -> dict:
             "falling back to raw response: %.200s",
             subtask.id,
             text,
-        )
-        synthesis_content = text.strip()
-    elif not synthesis_content or not synthesis_content.strip():
-        logger.warning(
-            "worker_node: extracted empty or whitespace-only synthesis for subtask %s",
-            subtask.id,
         )
         synthesis_content = text.strip()
 

@@ -7,6 +7,7 @@ These tests mock the LLM so they run without an API key and are deterministic.
 from __future__ import annotations
 
 import json
+import logging
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -437,6 +438,23 @@ def test_extract_synthesis_accepts_wrapped_json(reply, expected):
 )
 def test_extract_synthesis_rejects_unusable_replies(reply):
     assert _extract_synthesis(reply) is None
+
+
+def test_extract_synthesis_logs_when_key_present_but_empty(caplog):
+    """The 'key present but blank' case must be distinguishable from 'no JSON at all'.
+
+    _extract_synthesis always returns None or a non-empty stripped string, so a
+    check for emptiness downstream of it (e.g. in worker_node) can never fire.
+    The distinct warning has to be emitted here, where the empty value is
+    actually observed.
+    """
+    with caplog.at_level(logging.WARNING, logger="src.agents.graph"):
+        result = _extract_synthesis('{"synthesis": "   "}')
+
+    assert result is None
+    assert any(
+        "empty or whitespace-only" in record.message for record in caplog.records
+    )
 
 
 @patch("src.agents.graph.search")

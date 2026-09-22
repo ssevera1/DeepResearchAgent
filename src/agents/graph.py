@@ -325,6 +325,12 @@ def worker_node(state: AgentState) -> dict:
             text,
         )
         synthesis_content = text.strip()
+    elif not synthesis_content or not synthesis_content.strip():
+        logger.warning(
+            "worker_node: extracted empty or whitespace-only synthesis for subtask %s",
+            subtask.id,
+        )
+        synthesis_content = text.strip()
 
     finding = Finding(
         subtask_id=subtask.id,

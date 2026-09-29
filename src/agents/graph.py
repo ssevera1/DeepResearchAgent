@@ -383,7 +383,15 @@ def reviewer_node(state: AgentState) -> dict:
         )),
     ])
 
-    approved = _as_text(response.content).strip().lower().startswith("yes")
+    text = _as_text(response.content)
+
+    if not text or not text.strip():
+        logger.warning(
+            "reviewer_node: received empty or whitespace-only response from model"
+        )
+        approved = False
+    else:
+        approved = text.strip().lower().startswith("yes")
 
     if approved:
         # In-place mutation: these are references to objects already in state.

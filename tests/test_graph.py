@@ -216,6 +216,27 @@ def test_reviewer_advances_on_out_of_range_idx():
     assert result == {"current_subtask_idx": 6, "worker_retries": 0}
 
 
+@patch("src.agents.graph._get_llm")
+def test_reviewer_logs_warning_on_empty_response(mock_get_llm, caplog):
+    """An empty/whitespace-only reviewer reply should be rejected and logged,
+    not silently treated as approval."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response("   ")
+    mock_get_llm.return_value = llm
+
+    finding = Finding(subtask_id=0, content="Some answer")
+    state = _make_state(research_findings=[finding])
+
+    with caplog.at_level(logging.WARNING, logger="src.agents.graph"):
+        result = reviewer_node(state)
+
+    assert finding.approved is False
+    assert result["worker_retries"] == 1
+    assert any(
+        "empty or whitespace-only" in record.message for record in caplog.records
+    )
+
+
 # ── Routing tests ────────────────────────────────────────────────────────
 
 def test_routing_retry_when_rejected_and_retries_left():

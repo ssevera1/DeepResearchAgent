@@ -385,7 +385,7 @@ def reviewer_node(state: AgentState) -> dict:
 
     text = _as_text(response.content)
 
-    if not text or not text.strip():
+    if not text.strip():
         logger.warning(
             "reviewer_node: received empty or whitespace-only response from model"
         )

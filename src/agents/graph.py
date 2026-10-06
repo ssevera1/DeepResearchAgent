@@ -149,9 +149,14 @@ def _validate_search_results(results: list[dict[str, str]] | None) -> tuple[bool
         (is_valid, combined_text): whether results are usable, and text to use
     """
     if not results:
+        logger.warning("_validate_search_results: received None or empty results")
         return False, "[No search results available for this query.]"
     
     if not isinstance(results, list):
+        logger.warning(
+            "_validate_search_results: results is not a list (got %s)",
+            type(results).__name__,
+        )
         return False, "[Invalid search results format.]"
     
     # Filter to valid result items with both title and snippet
@@ -163,6 +168,11 @@ def _validate_search_results(results: list[dict[str, str]] | None) -> tuple[bool
     ]
     
     if not valid_results:
+        logger.warning(
+            "_validate_search_results: filtered results yielded no valid items "
+            "(raw count: %d)",
+            len(results),
+        )
         return False, "[No valid search results available for this query.]"
     
     combined = "\n\n".join(
@@ -170,7 +180,14 @@ def _validate_search_results(results: list[dict[str, str]] | None) -> tuple[bool
     )
     
     if not combined.strip():
+        logger.warning("_validate_search_results: combined text is empty after formatting")
         return False, "[Search results are empty.]"
+    
+    logger.debug(
+        "_validate_search_results: validated %d result(s) from %d raw result(s)",
+        len(valid_results),
+        len(results),
+    )
     
     return True, combined
 
@@ -298,6 +315,13 @@ def worker_node(state: AgentState) -> dict:
 
     results = search(subtask.query)
     is_valid, combined = _validate_search_results(results)
+
+    if not is_valid:
+        logger.warning(
+            "worker_node: search returned invalid or empty results for subtask %s; "
+            "using fallback message to prevent hallucination",
+            subtask.id,
+        )
 
     llm = _get_llm()
     response = _invoke_llm_with_retry(llm, [

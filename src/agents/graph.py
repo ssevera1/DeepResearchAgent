@@ -1,4 +1,5 @@
-"""Deep Research Agent — LangGraph cyclic state graph.
+"""
+Deep Research Agent — LangGraph cyclic state graph.
 
 Graph topology:
     START ──► Planner ──► Worker ──► Reviewer ──►─┐

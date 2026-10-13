@@ -468,6 +468,14 @@ def after_review(state: AgentState) -> Literal["worker", "__end__"]:
     plan = state["current_plan"]
     retries = state["worker_retries"]
 
+    if idx < 0 or idx > len(plan):
+        logger.error(
+            "after_review: invalid current_subtask_idx %d (plan has %d tasks)",
+            idx,
+            len(plan),
+        )
+        return cast(Literal["worker", "__end__"], END)
+
     if not state["research_findings"]:
         return "worker"
 

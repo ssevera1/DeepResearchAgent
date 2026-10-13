@@ -299,6 +299,38 @@ def test_routing_empty_findings_returns_worker():
     assert after_review(state) == "worker"
 
 
+def test_routing_end_when_idx_negative(caplog):
+    """A corrupted negative idx must not be routed to worker (which would
+    raise in worker_node); after_review should end the run and log it."""
+    finding = Finding(subtask_id=0, content="good", approved=True)
+    state = _make_state(
+        research_findings=[finding],
+        worker_retries=0,
+        current_subtask_idx=-1,
+    )
+    with caplog.at_level(logging.ERROR, logger="src.agents.graph"):
+        result = after_review(state)
+
+    assert result == "__end__"
+    assert any("invalid current_subtask_idx" in r.message for r in caplog.records)
+
+
+def test_routing_end_when_idx_past_plan_length(caplog):
+    """idx beyond len(plan) (not just equal to it) is corrupted state, not
+    the legitimate all-done sentinel, and must still end rather than loop."""
+    finding = Finding(subtask_id=1, content="good", approved=True)
+    state = _make_state(
+        research_findings=[finding],
+        worker_retries=0,
+        current_subtask_idx=3,  # plan has 2 sub-tasks; len(plan) == 2
+    )
+    with caplog.at_level(logging.ERROR, logger="src.agents.graph"):
+        result = after_review(state)
+
+    assert result == "__end__"
+    assert any("invalid current_subtask_idx" in r.message for r in caplog.records)
+
+
 # ── Edge case: planner with whitespace/empty LLM response ────────────────
 
 

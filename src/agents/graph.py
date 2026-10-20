@@ -306,6 +306,12 @@ def worker_node(state: AgentState) -> dict:
     plan = state["current_plan"]
 
     if idx < 0 or idx >= len(plan):
+        logger.error(
+            "worker_node: invalid current_subtask_idx %d (plan has %d tasks); "
+            "plan may be truncated or malformed",
+            idx,
+            len(plan),
+        )
         raise ValueError(
             f"worker_node: invalid current_subtask_idx {idx} for plan of "
             f"{len(plan)} tasks"
@@ -384,7 +390,8 @@ def reviewer_node(state: AgentState) -> dict:
 
     if idx < 0 or idx >= len(plan):
         logger.error(
-            "reviewer_node: invalid current_subtask_idx %d (plan has %d tasks)",
+            "reviewer_node: invalid current_subtask_idx %d (plan has %d tasks); "
+            "plan may be truncated or malformed",
             idx,
             len(plan),
         )
@@ -470,7 +477,8 @@ def after_review(state: AgentState) -> Literal["worker", "__end__"]:
 
     if idx < 0 or idx > len(plan):
         logger.error(
-            "after_review: invalid current_subtask_idx %d (plan has %d tasks)",
+            "after_review: invalid current_subtask_idx %d (plan has %d tasks); "
+            "plan may be truncated or malformed",
             idx,
             len(plan),
         )

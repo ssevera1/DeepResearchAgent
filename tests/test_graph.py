@@ -15,6 +15,7 @@ import pytest
 from tenacity import wait_none
 
 from src.agents.graph import (
+    _check_model_exists,
     _extract_synthesis,
     _invoke_llm_with_retry,
     after_review,
@@ -378,6 +379,55 @@ def test_planner_whitespace_items_filtered(mock_get_llm):
     assert "Valid task" in queries
     assert "Another task" in queries
     assert len(result["current_plan"]) == 2
+
+
+# ── LLM availability validation ─────────────────────────────────────────
+
+
+@patch("src.agents.graph._get_llm")
+def test_planner_availability_check_uses_mocked_llm(mock_get_llm):
+    """The availability check must go through the same llm _get_llm() returns.
+
+    A prior version constructed its own ChatOllama() to probe availability,
+    bypassing the mock entirely and making a real network call under test.
+    """
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response(json.dumps(["task"]))
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    planner_node(state)
+
+    llm._client.show.assert_called_once()
+
+
+@patch("src.agents.graph._check_model_exists", new=_check_model_exists.retry_with(wait=wait_none()))
+@patch("src.agents.graph._get_llm")
+def test_planner_raises_when_llm_unavailable(mock_get_llm):
+    """A model/server that fails the availability check must abort with a
+    clear RuntimeError and must never fall through to generation."""
+    llm = MagicMock()
+    llm._client.show.side_effect = httpx.ConnectError("connection refused")
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    with pytest.raises(RuntimeError, match="not available"):
+        planner_node(state)
+
+    llm.invoke.assert_not_called()
+
+
+@patch("src.agents.graph._get_llm")
+def test_planner_availability_check_does_not_generate(mock_get_llm):
+    """The availability probe must be a metadata lookup, not a full invoke()."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response(json.dumps(["task"]))
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    planner_node(state)
+
+    assert llm.invoke.call_count == 1
 
 
 # ── Edge case: worker with empty search results ─────────────────────────

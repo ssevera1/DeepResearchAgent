@@ -192,51 +192,6 @@ def _validate_search_results(results: list[dict[str, str]] | None) -> tuple[bool
     return True, combined
 
 
-def _validate_llm_availability() -> bool:
-    """Validate LLM model availability and connection before invocation.
-    
-    Returns:
-        True if LLM is available and reachable, False otherwise.
-    """
-    try:
-        logger.debug(
-            "_validate_llm_availability: testing connection to model '%s' at %s",
-            LLM_MODEL,
-            OLLAMA_BASE_URL,
-        )
-        llm = ChatOllama(model=LLM_MODEL, temperature=LLM_TEMPERATURE, base_url=OLLAMA_BASE_URL)
-        # Perform a minimal test invocation to verify model availability
-        llm.invoke([HumanMessage(content="test")])
-        logger.info(
-            "_validate_llm_availability: LLM model '%s' is available at %s",
-            LLM_MODEL,
-            OLLAMA_BASE_URL,
-        )
-        return True
-    except httpx.ConnectError as e:
-        logger.error(
-            "_validate_llm_availability: failed to connect to Ollama at %s: %s",
-            OLLAMA_BASE_URL,
-            str(e),
-        )
-        return False
-    except httpx.TimeoutException as e:
-        logger.error(
-            "_validate_llm_availability: connection to Ollama at %s timed out: %s",
-            OLLAMA_BASE_URL,
-            str(e),
-        )
-        return False
-    except Exception as e:
-        logger.error(
-            "_validate_llm_availability: model '%s' validation failed: %s (%s)",
-            LLM_MODEL,
-            str(e),
-            type(e).__name__,
-        )
-        return False
-
-
 # ── LLM singleton ──────────────────────────────────────────────────────
 
 def _get_llm() -> ChatOllama:
@@ -259,17 +214,59 @@ def _invoke_llm_with_retry(llm: ChatOllama, messages: list) -> Any:
     return llm.invoke(messages)
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+    reraise=True,
+)
+def _check_model_exists(llm: ChatOllama) -> None:
+    """Confirm the model is reachable via a metadata lookup, not a generation.
+
+    ``GET /api/show`` answers "does this model exist and is the server up"
+    without loading the model's weights, unlike a full ``invoke()`` call.
+    """
+    llm._client.show(LLM_MODEL)  # noqa: SLF001
+
+
+def _validate_llm_availability(llm: ChatOllama) -> Exception | None:
+    """Check that ``llm``'s model is reachable before using it.
+
+    Returns:
+        None if the model is available, otherwise the exception that proves
+        it is not (so the caller can chain it onto a clearer error).
+    """
+    try:
+        _check_model_exists(llm)
+    except Exception as e:
+        logger.error(
+            "_validate_llm_availability: model '%s' is not available at %s: %s (%s)",
+            LLM_MODEL,
+            OLLAMA_BASE_URL,
+            str(e),
+            type(e).__name__,
+        )
+        return e
+    logger.debug(
+        "_validate_llm_availability: LLM model '%s' is available at %s",
+        LLM_MODEL,
+        OLLAMA_BASE_URL,
+    )
+    return None
+
+
 # ── Node: Planner ───────────────────────────────────────────────────────
 
 def planner_node(state: AgentState) -> dict:
     """Break the user query into 3-5 concrete research sub-tasks."""
-    if not _validate_llm_availability():
+    llm = _get_llm()
+    unavailable = _validate_llm_availability(llm)
+    if unavailable is not None:
         logger.error("planner_node: LLM model is not available; cannot proceed")
         raise RuntimeError(
             f"LLM model '{LLM_MODEL}' is not available at {OLLAMA_BASE_URL}"
-        )
-    
-    llm = _get_llm()
+        ) from unavailable
+
     response = _invoke_llm_with_retry(llm, [
         SystemMessage(content=(
             "You are a research planner. Given a user query, decompose it into "

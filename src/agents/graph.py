@@ -192,6 +192,51 @@ def _validate_search_results(results: list[dict[str, str]] | None) -> tuple[bool
     return True, combined
 
 
+def _validate_llm_availability() -> bool:
+    """Validate LLM model availability and connection before invocation.
+    
+    Returns:
+        True if LLM is available and reachable, False otherwise.
+    """
+    try:
+        logger.debug(
+            "_validate_llm_availability: testing connection to model '%s' at %s",
+            LLM_MODEL,
+            OLLAMA_BASE_URL,
+        )
+        llm = ChatOllama(model=LLM_MODEL, temperature=LLM_TEMPERATURE, base_url=OLLAMA_BASE_URL)
+        # Perform a minimal test invocation to verify model availability
+        llm.invoke([HumanMessage(content="test")])
+        logger.info(
+            "_validate_llm_availability: LLM model '%s' is available at %s",
+            LLM_MODEL,
+            OLLAMA_BASE_URL,
+        )
+        return True
+    except httpx.ConnectError as e:
+        logger.error(
+            "_validate_llm_availability: failed to connect to Ollama at %s: %s",
+            OLLAMA_BASE_URL,
+            str(e),
+        )
+        return False
+    except httpx.TimeoutException as e:
+        logger.error(
+            "_validate_llm_availability: connection to Ollama at %s timed out: %s",
+            OLLAMA_BASE_URL,
+            str(e),
+        )
+        return False
+    except Exception as e:
+        logger.error(
+            "_validate_llm_availability: model '%s' validation failed: %s (%s)",
+            LLM_MODEL,
+            str(e),
+            type(e).__name__,
+        )
+        return False
+
+
 # ── LLM singleton ──────────────────────────────────────────────────────
 
 def _get_llm() -> ChatOllama:
@@ -218,6 +263,12 @@ def _invoke_llm_with_retry(llm: ChatOllama, messages: list) -> Any:
 
 def planner_node(state: AgentState) -> dict:
     """Break the user query into 3-5 concrete research sub-tasks."""
+    if not _validate_llm_availability():
+        logger.error("planner_node: LLM model is not available; cannot proceed")
+        raise RuntimeError(
+            f"LLM model '{LLM_MODEL}' is not available at {OLLAMA_BASE_URL}"
+        )
+    
     llm = _get_llm()
     response = _invoke_llm_with_retry(llm, [
         SystemMessage(content=(

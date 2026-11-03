@@ -31,9 +31,20 @@ MAX_QUERY_LENGTH = 5000             # max characters for a user query
 SEARCH_MAX_RESULTS = 5              # max results returned by search tool
 
 # ── Validate configuration ────────────────────────────────────────────
+logger = logging.getLogger(__name__)
+
 if not (0.0 <= LLM_TEMPERATURE <= 2.0):
     raise ValueError(f"LLM_TEMPERATURE must be between 0.0 and 2.0, got {LLM_TEMPERATURE}")
+logger.debug(f"LLM_TEMPERATURE={LLM_TEMPERATURE}")
+
 if MAX_WORKER_RETRIES < 1:
     raise ValueError(f"MAX_WORKER_RETRIES must be >= 1, got {MAX_WORKER_RETRIES}")
+logger.debug(f"MAX_WORKER_RETRIES={MAX_WORKER_RETRIES}")
+
 if MAX_PLAN_SUBTASKS < 3:
     raise ValueError(f"MAX_PLAN_SUBTASKS must be >= 3, got {MAX_PLAN_SUBTASKS}")
+logger.debug(f"MAX_PLAN_SUBTASKS={MAX_PLAN_SUBTASKS}")
+
+if SEARCH_MAX_RESULTS < 1:
+    raise ValueError(f"SEARCH_MAX_RESULTS must be >= 1, got {SEARCH_MAX_RESULTS}")
+logger.debug(f"SEARCH_MAX_RESULTS={SEARCH_MAX_RESULTS}")

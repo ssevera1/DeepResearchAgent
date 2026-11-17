@@ -40,7 +40,14 @@ from tenacity import (
     wait_exponential,
 )
 
-from config.settings import LLM_MODEL, LLM_TEMPERATURE, MAX_PLAN_SUBTASKS, MAX_WORKER_RETRIES, OLLAMA_BASE_URL
+from config.settings import (
+    LLM_MODEL,
+    LLM_TEMPERATURE,
+    MAX_PLAN_SUBTASKS,
+    MAX_WORKER_RETRIES,
+    MIN_PLAN_SUBTASKS,
+    OLLAMA_BASE_URL,
+)
 from src.agents.state import AgentState, Finding, SubTask
 from src.tools.search import search
 
@@ -222,7 +229,7 @@ def planner_node(state: AgentState) -> dict:
     response = _invoke_llm_with_retry(llm, [
         SystemMessage(content=(
             "You are a research planner. Given a user query, decompose it into "
-            f"3 to {MAX_PLAN_SUBTASKS} independent, concrete sub-tasks that "
+            f"{MIN_PLAN_SUBTASKS} to {MAX_PLAN_SUBTASKS} independent, concrete sub-tasks that "
             "together would fully answer the query.\n\n"
             "Respond ONLY with a JSON array of strings — each string is one sub-task.\n"
             "Example: [\"Find statistics on X\", \"Compare Y and Z\", \"Summarise expert opinions on W\"]\n\n"
@@ -234,11 +241,14 @@ def planner_node(state: AgentState) -> dict:
 
     text = _as_text(response.content)
 
+    used_fallback = False
+
     if not text or not text.strip():
         logger.warning(
             "planner_node: received empty or whitespace-only response from model"
         )
         raw = ["Research the user query"]
+        used_fallback = True
     else:
         try:
             raw = json.loads(text)
@@ -249,6 +259,7 @@ def planner_node(state: AgentState) -> dict:
             )
             # Fallback: treat the whole response as a single task
             raw = [text.strip()]
+            used_fallback = True
 
         # Validate: must be a list of non-empty strings
         if not isinstance(raw, list):
@@ -257,6 +268,7 @@ def planner_node(state: AgentState) -> dict:
                 type(raw).__name__,
             )
             raw = [str(raw)]
+            used_fallback = True
 
         raw = [
             s for item in raw
@@ -272,14 +284,14 @@ def planner_node(state: AgentState) -> dict:
                 "planner_node: extracted no valid sub-tasks; using fallback: %s",
                 raw[0][:100],
             )
+            used_fallback = True
 
-    if len(raw) < MAX_PLAN_SUBTASKS:
+    if not used_fallback and len(raw) < MIN_PLAN_SUBTASKS:
         logger.warning(
             "planner_node: LLM returned fewer sub-tasks than expected; "
-            "expected %d but got %d (prompt quality issue suspected): query=%.100s",
-            MAX_PLAN_SUBTASKS,
+            "expected at least %d but got %d (prompt quality issue suspected)",
+            MIN_PLAN_SUBTASKS,
             len(raw),
-            state['query'],
         )
 
     if len(raw) > MAX_PLAN_SUBTASKS:

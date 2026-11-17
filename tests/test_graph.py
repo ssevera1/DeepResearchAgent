@@ -24,6 +24,7 @@ from src.agents.graph import (
     worker_node,
 )
 from src.agents.state import AgentState, Finding, SubTask
+from config.settings import MIN_PLAN_SUBTASKS
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -67,6 +68,64 @@ def test_planner_parses_json_array(mock_get_llm):
     assert len(result["current_plan"]) == 3
     assert result["current_plan"][0].query == "Research topic A"
     assert result["current_subtask_idx"] == 0
+
+
+@patch("src.agents.graph._get_llm")
+def test_planner_no_warning_on_valid_minimum_plan(mock_get_llm, caplog):
+    """A 3-item plan is exactly what the prompt asks for — must not warn."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response(
+        json.dumps(["Research topic A", "Compare B vs C", "Summarise D"])
+    )
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    with caplog.at_level(logging.WARNING, logger="src.agents.graph"):
+        result = planner_node(state)
+
+    assert len(result["current_plan"]) == 3
+    assert not any(
+        "prompt quality issue suspected" in record.message
+        for record in caplog.records
+    )
+
+
+@patch("src.agents.graph._get_llm")
+def test_planner_warns_below_minimum_subtasks(mock_get_llm, caplog):
+    """A syntactically valid plan with fewer than MIN_PLAN_SUBTASKS items should warn."""
+    assert MIN_PLAN_SUBTASKS >= 2, "test assumes a below-minimum plan of size 1 is possible"
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response(json.dumps(["Only one task"]))
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    with caplog.at_level(logging.WARNING, logger="src.agents.graph"):
+        result = planner_node(state)
+
+    assert len(result["current_plan"]) == 1
+    assert any(
+        "prompt quality issue suspected" in record.message
+        for record in caplog.records
+    )
+
+
+@patch("src.agents.graph._get_llm")
+def test_planner_fallback_does_not_double_warn(mock_get_llm, caplog):
+    """Fallback paths already warn about why; the generic 'too few' warning
+    must not also fire for the same event."""
+    llm = MagicMock()
+    llm.invoke.return_value = _mock_llm_response("Not valid JSON at all")
+    mock_get_llm.return_value = llm
+
+    state = _make_state(current_plan=[])
+    with caplog.at_level(logging.WARNING, logger="src.agents.graph"):
+        result = planner_node(state)
+
+    assert len(result["current_plan"]) == 1
+    quality_warnings = [
+        r for r in caplog.records if "prompt quality issue suspected" in r.message
+    ]
+    assert len(quality_warnings) == 0
 
 
 @patch("src.agents.graph._get_llm")

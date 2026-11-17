@@ -22,6 +22,7 @@ if _parsed.scheme == "http" and _parsed.hostname not in ("localhost", "127.0.0.1
 
 # Agent behaviour
 MAX_WORKER_RETRIES = 3              # max times Reviewer can loop a sub-task back to Worker
+MIN_PLAN_SUBTASKS = 3               # lower bound requested from Planner
 MAX_PLAN_SUBTASKS = 5               # upper bound for Planner output
 
 # Input validation
@@ -44,6 +45,13 @@ logger.debug(f"MAX_WORKER_RETRIES={MAX_WORKER_RETRIES}")
 if MAX_PLAN_SUBTASKS < 3:
     raise ValueError(f"MAX_PLAN_SUBTASKS must be >= 3, got {MAX_PLAN_SUBTASKS}")
 logger.debug(f"MAX_PLAN_SUBTASKS={MAX_PLAN_SUBTASKS}")
+
+if MIN_PLAN_SUBTASKS < 1 or MIN_PLAN_SUBTASKS > MAX_PLAN_SUBTASKS:
+    raise ValueError(
+        f"MIN_PLAN_SUBTASKS must be between 1 and MAX_PLAN_SUBTASKS "
+        f"({MAX_PLAN_SUBTASKS}), got {MIN_PLAN_SUBTASKS}"
+    )
+logger.debug(f"MIN_PLAN_SUBTASKS={MIN_PLAN_SUBTASKS}")
 
 if SEARCH_MAX_RESULTS < 1:
     raise ValueError(f"SEARCH_MAX_RESULTS must be >= 1, got {SEARCH_MAX_RESULTS}")

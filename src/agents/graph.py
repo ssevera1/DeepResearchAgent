@@ -273,6 +273,15 @@ def planner_node(state: AgentState) -> dict:
                 raw[0][:100],
             )
 
+    if len(raw) < MAX_PLAN_SUBTASKS:
+        logger.warning(
+            "planner_node: LLM returned fewer sub-tasks than expected; "
+            "expected %d but got %d (prompt quality issue suspected): query=%.100s",
+            MAX_PLAN_SUBTASKS,
+            len(raw),
+            state['query'],
+        )
+
     if len(raw) > MAX_PLAN_SUBTASKS:
         logger.info(
             "planner_node: truncated plan from %d to %d sub-tasks",
